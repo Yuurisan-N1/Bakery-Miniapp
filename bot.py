@@ -487,7 +487,7 @@ def countdown(seconds, label):
     print("\r" + " " * (len(line) + 6) + "\r", end="", flush=True)
 
 
-async def call_fn(session, proxy, fn_id, arguments, method):
+async def call_fn(session, proxy, fn_id, arguments, method, account=None):
     headers = {
         "accept": SERVERFN_ACCEPT,
         "origin": "https://zerolabnetwork.xyz",
@@ -495,6 +495,8 @@ async def call_fn(session, proxy, fn_id, arguments, method):
         "user-agent": PAGE_AGENT,
         "x-tsr-serverfn": "true",
     }
+    if account and account.get("initData"):
+        headers["x-tg-init-data"] = account["initData"]
     url = BASE_URL + "/" + fn_id
     body = None
     if method == "POST":
@@ -540,7 +542,7 @@ async def sign_in(session, proxy, account):
             "referrerTgId": None,
             "deviceId": "",
             "fingerprint": "",
-        }, "POST")
+        }, "POST", account)
     payload = result_of(parse_payload(body))
     tenant = payload.get("tenant") or {}
     user = payload.get("user") or {}
@@ -553,13 +555,13 @@ async def sign_in(session, proxy, account):
 
 async def fetch_state(session, proxy, account):
     status, body = await call_fn(session, proxy, FN_STATE,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     payload = parse_payload(body)
     if status == 200 and result_of(payload):
         return result_of(payload)
     status, body = await call_fn(session, proxy, FN_USER,
                                  {"userId": account["userId"],
-                                  "tenantId": account["tenantId"]}, "GET")
+                                  "tenantId": account["tenantId"]}, "GET", account)
     payload = parse_payload(body)
     if status == 200 and result_of(payload):
         return result_of(payload)
@@ -592,7 +594,7 @@ def wait_seconds(payload, fallback):
 
 async def run_community(session, proxy, account):
     status, body = await call_fn(session, proxy, FN_COMMUNITY,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     payload = result_of(parse_payload(body))
     if status != 200 or not payload:
         log_red("Community membership could not be checked with the server")
@@ -605,7 +607,7 @@ async def run_community(session, proxy, account):
 
 async def run_bake(session, proxy, account, state):
     status, body = await call_fn(session, proxy, FN_BAKE,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     payload = parse_payload(body)
     result = result_of(payload)
     if status == 200 and result:
@@ -634,7 +636,7 @@ async def run_storage(session, proxy, account, state):
     status, body = await call_fn(
         session, proxy, FN_START_AD,
         {"userId": account["userId"], "providerId": None, "purpose": PURPOSE_STORAGE},
-        "POST")
+        "POST", account)
     started = result_of(parse_payload(body))
     session_id = started.get("sessionId") if started else None
     if status != 200 or not session_id:
@@ -651,7 +653,7 @@ async def run_storage(session, proxy, account, state):
     countdown(wait_seconds(started, 8), "Storage ad in")
     status, body = await call_fn(session, proxy, FN_STORAGE_AD,
                                  {"userId": account["userId"], "sessionId": session_id},
-                                 "POST")
+                                 "POST", account)
     payload = parse_payload(body)
     result = result_of(payload)
     if status == 200 and result:
@@ -680,7 +682,7 @@ async def run_storage(session, proxy, account, state):
 async def fetch_providers(session, proxy, account):
     status, body = await call_fn(session, proxy, FN_PROVIDERS,
                                  {"userId": account["userId"],
-                                  "tenantId": account["tenantId"]}, "GET")
+                                  "tenantId": account["tenantId"]}, "GET", account)
     payload = parse_payload(body)
     items = result_list(payload)
     providers = []
@@ -720,7 +722,7 @@ async def run_ads(session, proxy, account, state):
                 session, proxy, FN_START_AD,
                 {"userId": account["userId"], "providerId": provider["id"],
                  "purpose": PURPOSE_REWARD},
-                "POST")
+                "POST", account)
             started = result_of(parse_payload(body))
             session_id = started.get("sessionId") if started else None
             if status != 200 or not session_id:
@@ -744,7 +746,7 @@ async def run_ads(session, proxy, account, state):
                 session, proxy, FN_CLAIM_AD,
                 {"userId": account["userId"], "network": network,
                  "providerId": provider["id"], "sessionId": session_id},
-                "POST")
+                "POST", account)
             payload = parse_payload(body)
             result = result_of(payload)
             if status == 200 and result:
@@ -755,6 +757,8 @@ async def run_ads(session, proxy, account, state):
                 state["balance"] = balance
                 log_green(f"Ad reward from {clean_text(label, 'provider')} credited "
                           f"{clean_text(format_amount(reward), 0)} CRMB")
+                log_yellow(f"Ad counter now {clean_text(used, 0)} of "
+                           f"{clean_text(limit, 0)} on this account")
                 await asyncio.sleep(AD_PAUSE_SECONDS)
                 continue
             key = error_key(payload)
@@ -778,7 +782,7 @@ async def run_ads(session, proxy, account, state):
 
 async def run_spin(session, proxy, account, state):
     status, body = await call_fn(session, proxy, FN_SPIN,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     payload = parse_payload(body)
     result = result_of(payload)
     if status == 200 and result.get("ok") is True:
@@ -798,7 +802,7 @@ async def run_spin(session, proxy, account, state):
 
 async def run_scratch(session, proxy, account, state):
     status, body = await call_fn(session, proxy, FN_SCRATCH,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     payload = parse_payload(body)
     result = result_of(payload)
     if status == 200 and result.get("ok") is True:
@@ -816,14 +820,14 @@ async def run_scratch(session, proxy, account, state):
 
 async def run_checkin(session, proxy, account, state):
     status, body = await call_fn(session, proxy, FN_HUB,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     hub = result_of(parse_payload(body))
     checkin = hub.get("checkin") if isinstance(hub, dict) else None
     if not isinstance(checkin, dict):
         log_yellow("The daily protocol state could not be read from the server")
         return
     status, body = await call_fn(session, proxy, FN_CHECKIN,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     payload = parse_payload(body)
     result = result_of(payload)
     if status == 200 and result.get("ok") is True:
@@ -846,7 +850,7 @@ async def run_checkin(session, proxy, account, state):
 
 async def run_quiz(session, proxy, account, state):
     status, body = await call_fn(session, proxy, FN_HUB,
-                                 {"userId": account["userId"]}, "POST")
+                                 {"userId": account["userId"]}, "POST", account)
     hub = result_of(parse_payload(body))
     quiz = hub.get("quiz") if isinstance(hub, dict) else None
     if not isinstance(quiz, dict):
@@ -858,7 +862,7 @@ async def run_quiz(session, proxy, account, state):
         log_yellow("The knowledge round was already answered on this account")
         return
     status, body = await call_fn(session, proxy, FN_QUIZ,
-                                 {"userId": account["userId"], "choice": 0}, "POST")
+                                 {"userId": account["userId"], "choice": 0}, "POST", account)
     payload = parse_payload(body)
     result = result_of(payload)
     if status == 200 and result.get("ok") is True:
@@ -885,7 +889,7 @@ async def run_quiz(session, proxy, account, state):
 async def run_tasks(session, proxy, account, state):
     status, body = await call_fn(session, proxy, FN_TASKS,
                                  {"userId": account["userId"],
-                                  "tenantId": account["tenantId"]}, "GET")
+                                  "tenantId": account["tenantId"]}, "GET", account)
     payload = parse_payload(body)
     tasks = result_of(payload).get("tasks")
     if not isinstance(tasks, list) or not tasks:
@@ -903,7 +907,7 @@ async def run_tasks(session, proxy, account, state):
         status, body = await call_fn(
             session, proxy, FN_TASK,
             {"userId": account["userId"], "taskId": str(task_id), "isGlobal": False},
-            "POST")
+            "POST", account)
         claim = parse_payload(body)
         result = result_of(claim)
         if status == 200 and result:
